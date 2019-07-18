@@ -265,6 +265,220 @@ describe('Ethereum Hop Transactions', co(function *() {
   }));
 }));
 
+describe('Ethereum batch transaction data validation', function() {
+  const bitgo = new TestV2BitGo({ env: 'test' });
+  bitgo.initializeTestVars();
+  const coin = bitgo.coin('teth');
+
+  const batcherContractAddress = common.Environments[bitgo.env].batcherContractAddress;
+
+  const initialParams = {
+    recipients: [{
+        address: '0x1111111111111111111111111111111111111111',
+        amount: '5'
+      }, {
+        address: '0x2222222222222222222222222222222222222222',
+        amount: '5'
+      }
+    ]
+  };
+
+  const buildBadParams = (badRecipients) => {
+    const badPrebuildParams = {
+      recipients: badRecipients
+    };
+
+    return {
+      txParams: initialParams,
+      txPrebuild: badPrebuildParams
+    };
+  };
+
+  const runBadBatch = co(function *(badRecipients, expectedErrMsg) {
+    const badParams = buildBadParams(badRecipients);
+    let errMsg = '';
+    let threw = false;
+
+    try {
+      yield coin.verifyTransaction(badParams);
+    } catch (err) {
+      threw = true;
+      errMsg = err.message;
+    }
+
+    threw.should.equal(true, 'batch data verification did not throw when it should have');
+    if (expectedErrMsg) {
+      errMsg.should.equal(expectedErrMsg);
+    }
+  });
+
+  const correctData = '0xcf4c58e2' +
+    '0000000000000000000000000000000000000000000000000000000000000040' +
+    '00000000000000000000000000000000000000000000000000000000000000a0' +
+    '0000000000000000000000000000000000000000000000000000000000000002' +
+    '0000000000000000000000001111111111111111111111111111111111111111' +
+    '0000000000000000000000002222222222222222222222222222222222222222' +
+    '0000000000000000000000000000000000000000000000000000000000000002' +
+    '0000000000000000000000000000000000000000000000000000000000000005' +
+    '0000000000000000000000000000000000000000000000000000000000000005';
+
+  it('Fails when recipient address is not Batcher', co(function *() {
+    yield runBadBatch([{
+      address: '0xbadbadbadbadbadbadbadbadbadbadbadbadbadb',
+      amount: '10',
+      data: correctData
+    }], 'batch transactions must be addressed to the Batcher');
+  }));
+
+  it('Fails when total send amount is not equal to the sum of individual transfers', co(function *() {
+    yield runBadBatch([{
+      address: batcherContractAddress,
+      amount: '15',
+      data: correctData
+    }], 'Batcher send amount 15 is not equal to sum of individual transfers 10');
+  }));
+
+  it('Fails when prebuild array is not of size 1', co(function *() {
+    yield runBadBatch([{
+      address: batcherContractAddress,
+      amount: '15',
+      data: correctData
+    }, {
+      address: '0x1111111111111111111111111111111111111111',
+      amount: '10',
+      data: ''
+    }], 'prebuild should always have recipients array of length 1');
+  }));
+
+  it('Fails when function signature does not match', co(function *() {
+    const badData = '0xff4c58e2' +
+      '0000000000000000000000000000000000000000000000000000000000000040' +
+      '00000000000000000000000000000000000000000000000000000000000000a0' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000001111111111111111111111111111111111111111' +
+      '0000000000000000000000002222222222222222222222222222222222222222' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000000000000000000000000000000000000000000005' +
+      '0000000000000000000000000000000000000000000000000000000000000005';
+
+    runBadBatch([{
+      address: batcherContractAddress,
+      amount: '10',
+      data: badData
+    }], 'batch data function signature hash does not match expected');
+  }));
+
+  it('Fails when invalid addresses in data', co(function* () {
+    const badData = '0xcf4c58e2' +
+      '0000000000000000000000000000000000000000000000000000000000000040' +
+      '00000000000000000000000000000000000000000000000000000000000000a0' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '000000000000000000000000111111111111111111111111111111111111111z' +
+      '0000000000000000000000002222222222222222222222222222222222222222' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000000000000000000000000000000000000000000005' +
+      '0000000000000000000000000000000000000000000000000000000000000005';
+
+    yield runBadBatch([{
+      address: batcherContractAddress,
+      amount: '10',
+      data: badData
+    }], 'batch data must be a hex string');
+  }));
+
+  it('Fails when invalid amount in data', co(function *() {
+    const badData = '0xcf4c58e2' +
+      '0000000000000000000000000000000000000000000000000000000000000040' +
+      '00000000000000000000000000000000000000000000000000000000000000a0' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000001111111111111111111111111111111111111111' +
+      '0000000000000000000000002222222222222222222222222222222222222222' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '000000000000000000000000000000000000000000000000000000000000000z' +
+      '0000000000000000000000000000000000000000000000000000000000000005';
+
+    yield runBadBatch([{
+      address: batcherContractAddress,
+      amount: '10',
+      data: badData
+    }], 'batch data must be a hex string');
+  }));
+
+  it('Fails when bad array length', co(function *() {
+    const badData = '0xcf4c58e2' +
+      '0000000000000000000000000000000000000000000000000000000000000040' +
+      '00000000000000000000000000000000000000000000000000000000000000a0' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000001111111111111111111111111111111111111111' +
+      '0000000000000000000000002222222222222222222222222222222222222222' +
+      '0000000000000000000000000000000000000000000000000000000000000003' +
+      '0000000000000000000000000000000000000000000000000000000000000005' +
+      '0000000000000000000000000000000000000000000000000000000000000005';
+
+    yield runBadBatch([{
+      address: batcherContractAddress,
+      amount: '10',
+      data: badData
+    }], 'recipients and amounts arrays must be the same size');
+  }));
+
+  it('Fails when recipients and amounts are not the same size', co(function *() {
+    const badData = '0xcf4c58e2' +
+      '0000000000000000000000000000000000000000000000000000000000000040' +
+      '00000000000000000000000000000000000000000000000000000000000000a0' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000001111111111111111111111111111111111111111' +
+      '0000000000000000000000002222222222222222222222222222222222222222' +
+      '0000000000000000000000000000000000000000000000000000000000000003' +
+      '0000000000000000000000000000000000000000000000000000000000000005' +
+      '0000000000000000000000000000000000000000000000000000000000000005' +
+      '0000000000000000000000000000000000000000000000000000000000000005';
+
+
+    yield runBadBatch([{
+      address: batcherContractAddress,
+      amount: '10',
+      data: badData
+    }], 'recipients and amounts arrays must be the same size');
+  }));
+
+  it('Fails when recipients and amounts do not match original recipients', co(function *() {
+    const badData = '0xcf4c58e2' +
+      '0000000000000000000000000000000000000000000000000000000000000040' +
+      '00000000000000000000000000000000000000000000000000000000000000a0' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000003333333333333333333333333333333333333333' +
+      '0000000000000000000000002222222222222222222222222222222222222222' +
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      '0000000000000000000000000000000000000000000000000000000000000005' +
+      '0000000000000000000000000000000000000000000000000000000000000005';
+
+
+    yield runBadBatch([{
+      address: batcherContractAddress,
+      amount: '10',
+      data: badData
+    }], 'batch recipients in data does not match original recipients');
+  }));
+
+  it('Succeeds when batch information is correct', co(function *() {
+    const goodPrebuildParams = {
+      recipients: [{
+        address: batcherContractAddress,
+        amount: '10',
+        data: correctData
+      }]
+    };
+
+    const goodParams = {
+      txParams: initialParams,
+      txPrebuild: goodPrebuildParams
+    };
+
+    yield coin.verifyTransaction(goodParams);
+  }));
+});
+
 describe('Add final signature to ETH tx from offline vault', function() {
 
   let paramsFromVault, expectedResult, bitgo, coin;

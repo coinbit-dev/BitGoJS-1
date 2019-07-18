@@ -420,5 +420,18 @@ export abstract class BaseCoin {
     return m === 2 && n === 3;
   }
 
+  /**
+   * check if a string can safely be converted to a BigNumber
+   * @param str the string in question
+   * @returns the string if it is safe otherwise an empty string
+   */
+  safeStringNumber(str: string): string {
+    if (typeof str !== 'string' || !str.match(/^-?[0-9]+$/)) {
+      // positive and negative numbers
+      return '';
+    }
+    return str;
+  }
+
   abstract isValidAddress(address: string): boolean;
 }
