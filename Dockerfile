@@ -9,5 +9,6 @@ RUN apk add --no-cache tini
 COPY --from=builder /tmp/bitgo/modules/express /var/bitgo-express
 ENV NODE_ENV production
 ENV BITGO_BIND 0.0.0.0
+ENV BITGO_ENV prod
 EXPOSE 3080
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/node", "/var/bitgo-express/bin/bitgo-express"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/node", "/var/bitgo-express/bin/bitgo-express", "--disablessl"]
